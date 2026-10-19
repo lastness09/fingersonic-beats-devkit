@@ -10,7 +10,7 @@ Turn Beats into your own drum machine, sampler, sequencer, MIDI controller or wi
 
 Share this repository URL with your assistant and use the following task brief, replacing the feature request with your own idea:
 
-> Build an independent Fingersonic Beats App0 firmware project for the features I request. First read README.md, DEVELOPMENT.md, GPIO.md and RECOVERY.md from this developer kit. Use public SDKs and libraries; no official manufacturer firmware source is supplied or required. Target ESP32-S3, the published 16 MB partition layout and the 2 MiB App0 slot. Implement 10 shared-ADC pads, the single ENCODER2 knob, and the exact pad-to-LED map. Power, charging and battery-level management are hardware-managed and need no application implementation. Implement and document a way to select the existing App1 using the public OTA APIs before adding complex features. Respect the production-date recovery limits. Generate a complete new source project with pinned dependencies, matching build settings, a build command, an application-only BIN, documented controls and a validation checklist. Keep the installed App1, bootloader, partition table and security configuration intact. Identify any hardware assumptions or tests that still require a physical device. Do not claim the result is official firmware or that it has passed hardware tests unless those tests were actually performed.
+> Build an independent Fingersonic Beats App0 firmware project for the features I request. First read README.md, DEVELOPMENT.md, GPIO.md, RECOVERY.md and BUILD_VALIDATION.md from this developer kit. Use public SDKs and libraries; no official manufacturer firmware source is supplied or required. Target ESP32-S3, the published 16 MB partition layout and the 2 MiB App0 slot. Implement 10 shared-ADC pads, the single ENCODER2 knob, and the exact pad-to-LED map. Power, charging and battery-level management are hardware-managed and need no application implementation. Implement and document a way to select the existing App1 using the public OTA APIs before adding complex features. Respect the production-date recovery limits. Generate a complete new source project with pinned dependencies, matching build settings, a build command, an application-only BIN, documented controls and a validation checklist. Keep the installed App1, bootloader, partition table and security configuration intact. Identify any hardware assumptions or tests that still require a physical device. Do not claim the result is official firmware or that it has passed hardware tests unless those tests were actually performed.
 
 The assistant should produce its own application code for the user. That does not require publishing the manufacturer's source or adding code to this documentation repository. Feature choices, audio engines and MIDI behavior can be designed independently; the hardware tables and recovery requirements remain the interface contract.
 
@@ -37,9 +37,13 @@ For a first application, request pad-to-USB/BLE-MIDI output with local LED feedb
 | Bootloader | Preserve the installed image and applicable production-batch recovery behavior |
 | Partition table | Match the existing layout for compilation; preserve the device's partition table |
 | Boot-selection records | Use public OTA APIs and the supported uploader; do not directly erase system records |
-| Sound bank / application files | Follow the supported Beats resource-update process; do not upload a full filesystem image |
+| Sound bank | The existing App1 uploader accepts `.sf2`; build any sampling instrument around an SF2-compatible engine |
 
 Musical features and app compatibility are optional. You may use your own audio engine or implement only USB/BLE MIDI. Recovery access is essential, especially on earlier hardware. Read the [production-date recovery rules](RECOVERY.md) before installing a custom App0.
+
+The existing uploader supports **`.bin` applications and `.sf2` sound banks only**. A synthesizer can create sounds procedurally without a sound bank. A sampler using App1 must load SF2 banks; prepare recorded samples inside an SF2 file before upload. WAV/MP3 files, ZIP archives, JSON resources and filesystem images are not accepted upload formats for this workflow.
+
+An AI designing a sampler should choose an independent public SF2 engine or write its own compatible implementation, document supported SF2 features and presets, and validate bank size and memory use on the actual hardware. Do not assume the filesystem partition size is the usable SF2 size limit, invent a fixed uploaded filename or copy the manufacturer's synth/parser code. The exact uploader limit and bank-discovery contract must be confirmed before claiming end-to-end sampler compatibility.
 
 ## 2. Hardware and toolchain
 
@@ -90,7 +94,7 @@ Choose public libraries according to your features:
 
 Lock the versions you use and retain required third-party notices. Guitar-specific display and touch-controller libraries are not Beats requirements. For an ESP-IDF implementation, use its public GPIO, ADC, I2S and OTA APIs and validate the same hardware interfaces and slot boundaries.
 
-For a reproducible Arduino CLI project, include a matching custom partition CSV and record the complete board options. With the 3.3.2 reference platform, the relevant FQBN options are `esp32:esp32:esp32s3:FlashSize=16M,PSRAM=opi,PartitionScheme=custom,USBMode=default,CDCOnBoot=default,MSCOnBoot=default,DFUOnBoot=default`. Verify the options with the installed platform's board details before compiling, then use `arduino-cli compile --fqbn <verified-FQBN> --export-binaries <your-sketch-directory>`. Review the recovery requirements before using an uploader.
+For a reproducible Arduino CLI project, use the [complete installation commands, partition CSV and tested build recipe](BUILD_VALIDATION.md). With the 3.3.2 reference platform, the FQBN is `esp32:esp32:esp32s3:FlashSize=16M,PSRAM=opi,PartitionScheme=custom,USBMode=default,CDCOnBoot=default,MSCOnBoot=default,DFUOnBoot=default`. Check the resulting application file separately against the 2 MiB App0 limit; the platform's generic custom-partition maximum is not a sufficient capacity check. Review the recovery requirements before using an uploader.
 
 ## 4. Partitions and application size
 
@@ -137,7 +141,7 @@ Earlier devices require a running App0 to trigger this transition. Bluetooth and
 
 Find supported tools through [Official Beats resources](https://fingersonic.com/products/fingersonic-beats/). This guide does not assert that Beats App1 exposes the same HTTP endpoints, authentication or responses as Guitar. Do not copy Guitar upload requests without verifying compatibility.
 
-No custom application was compiled or flashed as part of this documentation update. The interface tables were checked against the current local project configuration; device behavior still requires hardware validation.
+A new independent test application was written from the public documentation and public SDK interfaces. See [build verification](BUILD_VALIDATION.md#build-audit-result) for its compilation results. Official firmware source was not used. No device flashing or physical-device validation was performed.
 
 ## 8. Troubleshooting
 

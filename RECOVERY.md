@@ -46,6 +46,8 @@ Reference: [Espressif ESP32-S3 OTA API](https://docs.espressif.com/projects/esp-
 
 Use [Official Beats resources](https://fingersonic.com/products/fingersonic-beats/) to obtain a tool and recovery file explicitly intended for the installed Beats hardware. Enter the preinstalled App1 using an operation supported by your current firmware and hardware batch, then follow that tool's instructions.
 
+The existing App1 uploader accepts application `.bin` and sound-bank `.sf2` files only. Restore App0 with a compatible application BIN; restore or replace a sample bank with SF2. WAV/MP3 files, ZIP archives and full filesystem images are not supported uploads.
+
 Do not use Guitar application binaries, merged images, bootloaders or partition images as Beats recovery files. The developer kit does not distribute an official Beats firmware binary or private source.
 
 ## Before installing custom firmware
