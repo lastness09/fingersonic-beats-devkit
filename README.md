@@ -1,32 +1,54 @@
 # Fingersonic Beats Developer Kit
 
-Fingersonic Beats 公开开发指南。仅公开 GPIO、独立固件开发环境搭建方法及升级恢复注意事项，不提供官方固件源码、内部算法或系统镜像。
+Build a drum machine, sampler, sequencer, MIDI controller or wireless remote with Fingersonic Beats. This public kit describes the hardware interfaces, development environment and recovery requirements for your own App0 firmware.
 
-Beats 是 **10 个力度感应鼓盘、一个旋钮**的产品；唯一旋钮在内部工程中命名为 `ENCODER2`，这个名称不表示产品有两个旋钮。
+**[Development guide](DEVELOPMENT.md)** · **[GPIO and LED mapping](GPIO.md)** · **[Flashing and recovery](RECOVERY.md)**
 
-## 开始开发
+**[Official Beats resources](https://fingersonic.com/products/fingersonic-beats/)** · **[Developer Kits](https://fingersonic.com/developers/)**
 
-| 文档 | 内容 |
+Beats has **10 pressure-sensitive drum pads and one physical rotary encoder**. The single encoder is named `ENCODER2` in the hardware configuration; this name does not indicate a second physical knob.
+
+## Explore the developer kit
+
+| Document | Content |
 | --- | --- |
-| [GPIO 与硬件接口](GPIO.md) | 唯一旋钮、10 路 ADC 激励、公共 ADC、LED 和 I2S |
-| [环境搭建与独立固件](DEVELOPMENT.md) | Arduino、内存、USB、分区和开发步骤 |
-| [烧录模式与恢复风险](RECOVERY.md) | 新旧生产批次、App0/App1 和自定义恢复入口 |
+| [Development guide](DEVELOPMENT.md) | ESP32-S3 platform, Arduino setup, USB, partitions and development workflow |
+| [GPIO reference](GPIO.md) | Encoder, shared ADC, pad drive pins, I2S and USB |
+| [Pad-to-LED mapping](GPIO.md#pad-to-led-mapping) | Actual LED chain indices, pad identities and follow-light note mapping |
+| [Flashing and recovery](RECOVERY.md) | Production-date rules, official recovery gesture and custom App1 entry points |
 
-## 烧录模式：请先确认生产日期
+## Develop with an AI coding assistant
 
-- **2027 年 1 月 1 日之后生产的设备**：按住右侧唯一旋钮开机，可以强制进入烧录模式，即使 App0 无法运行。此规则按生产批次判断，不按购买时间、升级时间或当前日期判断。
-- **此前生产的设备**：必须由正在运行的 App0 调用烧录模式。官方固件操作为：按住左边第一个按键（HH OPEN），在约 2 秒内快速连续按下并松开唯一旋钮 5 次。
-- **旧设备风险**：如果你的自定义 App0 无法启动，就无法通过 App0 调用 App1，设备可能变砖。开发和刷入自定义固件的风险由开发者自行承担。不要把蓝牙入口当成 App0 崩溃后的硬件恢复保证。
-- **2027 年 1 月 1 日当天生产的设备**：这里的批次规则未明确涵盖当天，请先向官方确认硬件版本，不应自行假设具有强制恢复功能。
+Give your AI assistant this repository URL and describe the instrument or controller you want to build. The [development guide](DEVELOPMENT.md#develop-with-an-ai-coding-assistant) includes a copyable task brief, the required hardware interfaces and a build-and-validation checklist. An assistant should read all four documents before generating a new application.
 
-建议自定义固件始终保留至少一种进入 App1 的办法，例如蓝牙调用、按键组合或菜单操作，并在更改音频和应用逻辑前先验证它。详见[恢复指南](RECOVERY.md)。
+This is an interface specification for **independent firmware development**, not a release of the official firmware. The assistant can create a new source project using public SDKs and libraries without receiving, copying or reconstructing private manufacturer implementation code.
 
-## 相关链接
+Power, charging and battery-level management are handled by dedicated hardware independently of App0. Your custom application does not need to implement those functions or maintain a software power latch.
 
-- [Fingersonic 官网](https://fingersonic.com/)
+Download the documentation with GitHub's **Code → Download ZIP**, or clone this repository. The kit contains documentation only. It does not include manufacturer firmware source, private processing algorithms, application binaries or system images.
+
+User application development targets **App0 (2 MiB)**. Keep the preinstalled App1 uploader, bootloader, partition table and security configuration intact. Use files and tools explicitly intended for Beats; Guitar firmware and GPIO assignments are not interchangeable with Beats.
+
+## Read before installing custom firmware
+
+| Production date | Entry to flashing mode | If App0 cannot run |
+| --- | --- | --- |
+| After January 1, 2027 | Hold down the single knob on the right while powering on | Forced entry remains available, according to the manufacturer's batch specification |
+| Before January 1, 2027 | A running App0 must select App1 and restart | Software entry is unavailable; an unbootable custom App0 can brick the device |
+
+On earlier devices running official firmware, **hold the first pad on the left (HH OPEN), then quickly press and release the single knob five times within approximately two seconds**. This gesture is handled by App0, so custom firmware must implement its own entry if it needs to retain that operation.
+
+**Developers assume the risk of installing custom firmware on earlier devices. If your custom App0 cannot start, the device may become a brick that you cannot recover through normal user operations.** A Bluetooth command, menu or software button combination only works while App0 can execute the code handling it.
+
+Always preserve and test an App1 entry in your firmware, such as a physical gesture, menu action or your own Bluetooth command. See the [recovery guide](RECOVERY.md#provide-an-app1-entry-in-your-firmware) for the public OTA API sequence and its limits.
+
+The manufacturer-supplied batch rule says **after** January 1, 2027. Devices manufactured on January 1 itself need separate hardware-revision confirmation. Production date, rather than purchase date or firmware-update date, determines the applicable batch. Future-batch recovery behavior has not been tested as part of this documentation release.
+
+## Support and related projects
+
+- [Fingersonic Lab](https://fingersonic.com/)
+- [Official Beats resources](https://fingersonic.com/products/fingersonic-beats/)
 - [Fingersonic Guitar Developer Kit](https://github.com/lastness09/fingersonic-guitar-devkit)
-- [Beats Developer Kit](https://github.com/lastness09/fingersonic-beats-devkit)
+- [Support](mailto:support@fingersonic.net)
 
-Guitar 的开发资料可用于理解整体开发流程，但 Guitar 固件、GPIO 和二进制文件不可作为 Beats 固件使用。本文档不附带官方恢复固件下载；恢复文件必须使用官方明确标注适配 Beats 硬件的版本。
-
-本指南中的 GPIO 来自当前 Beats 工程配置，生产批次恢复规则由厂商提供。尚未完成本文独立固件方案的实机验证。
+Hardware tables reflect the current Beats project configuration. They describe interfaces for independent implementations; no manufacturer source code is required. Custom firmware builds and device flashing were not performed for this documentation release.

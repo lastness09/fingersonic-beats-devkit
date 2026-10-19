@@ -1,51 +1,58 @@
-# 烧录模式、App1 与开发风险
+# Fingersonic Beats Flashing and Recovery
 
-[返回目录](README.md) · [独立开发](DEVELOPMENT.md)
+[Developer kit](README.md) · [Development guide](DEVELOPMENT.md) · [GPIO and LED mapping](GPIO.md)
 
-## 生产日期决定恢复入口
+## Production-date recovery rules
 
-| 设备批次 | 如何进入烧录模式 | App0 无法运行时 |
+| Production batch | Entry to flashing mode | If App0 cannot run |
 | --- | --- | --- |
-| 2027 年 1 月 1 日之后生产 | 关机后按住右侧唯一旋钮，再开机，进入强制烧录模式 | 按厂商批次说明，仍可强制进入 |
-| 此前生产 | 由运行中的 App0 选择 App1 并重启 | 软件入口不可用，可能变砖 |
+| After January 1, 2027 | With the device off, hold down the single knob on the right and power on | Forced entry is available according to the manufacturer's batch specification |
+| Before January 1, 2027 | Running App0 must select App1 and restart | App0-dependent entry is unavailable; custom firmware can brick the device |
 
-上述新批次能力是厂商提供的批次说明，本指南未实测未来生产的设备。2027 年 1 月 1 日当天生产的设备是否包含此能力须另行确认。不要按购买日期判断硬件版本。
+The future-batch behavior above is a manufacturer-provided specification, not a hardware test performed for this release. The stated rule uses **after** January 1, 2027; confirm the revision of any device manufactured on January 1 itself. Purchase date and firmware-update date do not determine the production batch.
 
-旧批次使用官方固件时：**按住左边第一个按键（HH OPEN），在约 2 秒内快速连续按下并松开唯一旋钮 5 次**。程序随即选择 App1 并重启。这个手势由官方 App0 实现，不是与应用无关的硬件启动功能。
+On earlier devices running official firmware, **hold the first pad on the left (HH OPEN), then quickly press and release the single knob five times within approximately two seconds**. App0 handles this gesture, selects App1 and restarts. It is not an application-independent hardware recovery gesture.
 
-**旧批次设备刷入无法启动的自定义 App0 后，可能变成无法通过正常操作恢复的“砖头”。开发者需自行承担刷写自定义固件的风险。** 不承诺通过蓝牙、USB 或隐藏操作恢复已经无法运行的 App0；需要官方确认后续处理方式。
+**If custom App0 firmware cannot start on an earlier device, the device may become a brick that cannot be recovered through normal user operations. The developer assumes the risk of installing custom firmware.** Do not promise that Bluetooth, USB or a hidden software gesture can recover an application that cannot run.
 
-## 自定义 App0 必须保留自己的 App1 入口
+## Provide an App1 entry in your firmware
 
-建议至少保留一个实体操作入口，并可额外提供蓝牙命令或菜单入口。入口应尽早初始化，避免依赖音源加载成功、音频线程启动或完整业务界面。
+Preserve at least one physical operation and optionally add a Bluetooth or menu entry. Initialize it early enough that it does not depend on sound-bank loading, audio tasks or the full user interface.
 
-可以自行设计以下操作之一：
+Possible designs include:
 
-- 兼容官方手势：按住 HH OPEN，再连续短按旋钮 5 次。
-- 开机时按住自定义组合，App0 的最早初始化阶段检测后立即转入 App1。
-- 菜单中提供“进入升级模式”，用户确认后执行。
-- 蓝牙连接后接收开发者自行定义的升级命令，确认后选择 App1 并重启。
+- The official-style gesture: hold HH OPEN and press the knob five times.
+- A startup combination checked during the earliest App0 initialization stage.
+- An **Enter update mode** menu action with a confirmation step.
+- A Bluetooth command defined and implemented by your own firmware and client.
 
-这里的蓝牙命令是**自定义固件设计建议**，不是已发布的官方蓝牙升级协议。开发者需在固件和客户端两端实现相同命令、必要的连接确认、执行回执和防误触逻辑；不要宣称官方 App 已支持此功能，也不要挪用未确认的官方 MIDI CC。
+A Bluetooth command here is a **custom firmware design suggestion**, not a published official upgrade protocol. Both the application and its client must agree on the command, connection checks, acknowledgment and protection against accidental activation. Do not claim that the official app implements it or reuse an unconfirmed official MIDI CC.
 
-## 切换到 App1 的实现流程
+All software entry points require App0 to execute their handlers. Early initialization improves availability when later features fail, but it does not provide recovery from an App0 that cannot start.
 
-使用 Espressif 的公开 OTA API；只需实现以下逻辑，不依赖厂商源码：
+## Switching to the preinstalled App1
 
-1. 通过 `esp_partition_find_first` 查找类型 `ESP_PARTITION_TYPE_APP`、子类型 `ESP_PARTITION_SUBTYPE_APP_OTA_1` 的既有分区。
-2. 找不到 App1 时返回错误，不修改启动选择，不继续重启。
-3. 提示用户进入升级模式，停止活动音符与音频输出，并完成需要的状态保存。
-4. 调用 `esp_ota_set_boot_partition`，目标是刚查到的 App1 分区。
-5. 检查返回值；仅当为 `ESP_OK` 时调用 `esp_restart`。失败时向用户报告原因并保留当前应用运行。
+Use Espressif's public OTA APIs. The operation selects an existing application; it does not install or replace App1.
 
-API 参考：[Espressif ESP32-S3 OTA API](https://docs.espressif.com/projects/esp-idf/en/stable/esp32s3/api-reference/system/ota.html)。这只是选择原装 App1，不是将自定义程序写入 App1。设备的安全策略仍须允许启动现有 App1。
+1. Locate the existing application partition with `esp_partition_find_first`, type `ESP_PARTITION_TYPE_APP`, subtype `ESP_PARTITION_SUBTYPE_APP_OTA_1`.
+2. If App1 is not found, report an error. Do not change boot selection or restart.
+3. Notify the user, stop active notes and audio output, and complete necessary state saves.
+4. Call `esp_ota_set_boot_partition` with the App1 partition.
+5. Check the return value. Only call `esp_restart` after `ESP_OK`; otherwise report the failure and keep the current application running.
 
-**任何上述软件办法都要求 App0 至少能运行到处理入口的位置。蓝牙命令不能救回无法启动或蓝牙任务也无法运行的 App0。** 新批次的独立强制入口与这些软件设计不能混为一谈。
+Reference: [Espressif ESP32-S3 OTA API](https://docs.espressif.com/projects/esp-idf/en/stable/esp32s3/api-reference/system/ota.html). The device's existing security policy must allow the installed App1 to boot.
 
-## 刷入前检查
+## Return to official Beats firmware
 
-- 确认目标是 Beats，应用文件来自自己的 Beats 构建且不超过 App0 容量。
-- 先验证能从自定义 App0 返回 App1，再逐步添加复杂功能。
-- 确认拥有适配实际 Beats 硬件的官方恢复文件和上传工具。
-- 保留原装 App1、bootloader、分区表和安全配置，不执行整片擦除。
-- 在旧批次上进行有可能导致启动失败的实验前，接受可能无法自行恢复的风险。
+Use [Official Beats resources](https://fingersonic.com/products/fingersonic-beats/) to obtain a tool and recovery file explicitly intended for the installed Beats hardware. Enter the preinstalled App1 using an operation supported by your current firmware and hardware batch, then follow that tool's instructions.
+
+Do not use Guitar application binaries, merged images, bootloaders or partition images as Beats recovery files. The developer kit does not distribute an official Beats firmware binary or private source.
+
+## Before installing custom firmware
+
+- Confirm the production batch and the available recovery path.
+- Verify the application is a Beats App0 build and fits within its 2 MiB slot.
+- Test the transition from your minimal custom App0 to the existing App1 before adding complex features.
+- Obtain a compatible official recovery file and supported uploader in advance.
+- Preserve App1, the bootloader, partition table and device security settings; do not erase all Flash.
+- On earlier devices, accept that an application-startup failure may leave no normal user recovery path.

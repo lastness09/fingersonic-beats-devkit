@@ -1,50 +1,160 @@
-# 独立固件开发与环境搭建
+# Fingersonic Beats Hardware and Third-Party Firmware Guide
 
-[返回目录](README.md) · [GPIO](GPIO.md) · [恢复与 App1](RECOVERY.md)
+Updated: 2026-10-19 · Platform: ESP32-S3 · Controls: 10 pressure-sensitive pads and one rotary encoder
 
-本仓库只包含指南，不含可直接编译的官方工程。开发者应新建自己的应用，使用公开 SDK 和库实现功能；无需、也不能从此仓库获取官方固件源码。
+Turn Beats into your own drum machine, sampler, sequencer, MIDI controller or wireless remote. Your App0 can define its own pad behavior, lighting, MIDI messages and audio engine. This documentation follows the interface-first approach of the [Guitar Developer Kit](https://github.com/lastness09/fingersonic-guitar-devkit), using the Beats hardware assignments.
 
-## 硬件与工具基线
+**This repository contains development documentation only. It does not contain official firmware source or a ready-to-build manufacturer application.** Create your own application using public SDKs and libraries.
 
-- MCU：ESP32-S3。
-- 现有项目设置：16 MB Flash、OPI PSRAM；具体 PSRAM 容量须按实际硬件确认。
-- Arduino IDE 2.x 或 Arduino CLI；也可自行使用 ESP-IDF。
-- 现有本地开发环境安装的 Arduino ESP32 Core 为 3.3.2。它是参考基线，不是对所有自定义固件的兼容性保证。
-- USB MIDI 使用 USB-OTG（TinyUSB），USB CDC On Boot、USB Firmware MSC On Boot、USB DFU On Boot 均关闭。
-- LED 可选用 Adafruit NeoPixel；MIDI、蓝牙、音频等库按自己需要选择。Guitar 特有的触摸和显示屏依赖不应照搬到 Beats。
+## Develop with an AI coding assistant
 
-公开上游：[Arduino ESP32](https://github.com/espressif/arduino-esp32)、[Arduino CLI](https://arduino.github.io/arduino-cli/)、[Adafruit NeoPixel](https://github.com/adafruit/Adafruit_NeoPixel)、[Arduino MIDI](https://github.com/FortySevenEffects/arduino_midi_library)、[Arduino BLE-MIDI](https://github.com/lathoub/Arduino-BLE-MIDI)。锁定所选版本并遵守相应许可证。
+Share this repository URL with your assistant and use the following task brief, replacing the feature request with your own idea:
 
-在 Arduino 的附加开发板管理器网址中配置官方索引：
+> Build an independent Fingersonic Beats App0 firmware project for the features I request. First read README.md, DEVELOPMENT.md, GPIO.md and RECOVERY.md from this developer kit. Use public SDKs and libraries; no official manufacturer firmware source is supplied or required. Target ESP32-S3, the published 16 MB partition layout and the 2 MiB App0 slot. Implement 10 shared-ADC pads, the single ENCODER2 knob, and the exact pad-to-LED map. Power, charging and battery-level management are hardware-managed and need no application implementation. Implement and document a way to select the existing App1 using the public OTA APIs before adding complex features. Respect the production-date recovery limits. Generate a complete new source project with pinned dependencies, matching build settings, a build command, an application-only BIN, documented controls and a validation checklist. Keep the installed App1, bootloader, partition table and security configuration intact. Identify any hardware assumptions or tests that still require a physical device. Do not claim the result is official firmware or that it has passed hardware tests unless those tests were actually performed.
+
+The assistant should produce its own application code for the user. That does not require publishing the manufacturer's source or adding code to this documentation repository. Feature choices, audio engines and MIDI behavior can be designed independently; the hardware tables and recovery requirements remain the interface contract.
+
+For a first application, request pad-to-USB/BLE-MIDI output with local LED feedback and a documented App1 gesture. Add a sampler, sequencer or I2S sound engine after verifying the input and recovery paths. If the assistant has no device access, it can check build results and static configuration but must leave ADC response, encoder behavior, LED positions, audio and recovery as explicit physical-device checks.
+
+## Contents
+
+- [1. Development boundary](#1-development-boundary)
+- [2. Hardware and toolchain](#2-hardware-and-toolchain)
+- [3. Arduino setup](#3-arduino-setup)
+- [4. Partitions and application size](#4-partitions-and-application-size)
+- [5. Hardware initialization](#5-hardware-initialization)
+- [6. App1 entry and application design](#6-app1-entry-and-application-design)
+- [7. Building, uploading and validation](#7-building-uploading-and-validation)
+- [8. Troubleshooting](#8-troubleshooting)
+- [9. Publishing your firmware](#9-publishing-your-firmware)
+
+## 1. Development boundary
+
+| Target | Developer operation |
+| --- | --- |
+| App0 | Build your own application BIN, then replace the main application through the supported Beats uploader |
+| App1 | Enter and use the preinstalled uploader; preserve its firmware |
+| Bootloader | Preserve the installed image and applicable production-batch recovery behavior |
+| Partition table | Match the existing layout for compilation; preserve the device's partition table |
+| Boot-selection records | Use public OTA APIs and the supported uploader; do not directly erase system records |
+| Sound bank / application files | Follow the supported Beats resource-update process; do not upload a full filesystem image |
+
+Musical features and app compatibility are optional. You may use your own audio engine or implement only USB/BLE MIDI. Recovery access is essential, especially on earlier hardware. Read the [production-date recovery rules](RECOVERY.md) before installing a custom App0.
+
+## 2. Hardware and toolchain
+
+| Component | Current project baseline |
+| --- | --- |
+| MCU | ESP32-S3 |
+| Flash layout | 16 MB; 2 MiB App0 slot |
+| PSRAM setting | OPI; confirm installed capacity for your hardware revision |
+| Pads | 10 drive GPIOs sharing one ADC sense input |
+| Encoder | One physical knob, named ENCODER2; GPIO1 / GPIO3 / GPIO38 |
+| LEDs | GPIO2; GRB, 800 kHz; pad pixels 0–9 use a nonsequential scan-to-LED map |
+| Audio | I2S output, 44.1 kHz stereo, 16-bit PCM |
+| Power / charging / battery level | Managed independently by dedicated hardware; no App0 implementation required |
+| Arduino ESP32 Core | 3.3.2, matching the inspected local development installation |
+
+See the [complete GPIO and LED tables](GPIO.md). Hardware settings do not specify the complete bill of materials or guarantee every custom application has been tested on a device.
+
+## 3. Arduino setup
+
+Use Arduino IDE 2.x or Arduino CLI. Add the official Espressif board-manager URL:
 
 `https://espressif.github.io/arduino-esp32/package_esp32_index.json`
 
-安装 Espressif 的 esp32 平台，选择 ESP32S3 Dev Module，核对 Flash、PSRAM、USB 和自定义分区设置。导出时只使用自己的应用 `.ino.bin`，不要将 merged 镜像、bootloader 或 partition 镜像作为 App0 上传。
+Install the Espressif esp32 platform and select **ESP32S3 Dev Module**. For an initial build, match these settings to the existing product configuration:
 
-## 现有分区边界（用于理解与编译）
+| Setting | Value |
+| --- | --- |
+| ESP32 Core | 3.3.2 reference baseline |
+| Flash Size | 16 MB |
+| PSRAM | OPI PSRAM |
+| Partition scheme | Custom, matching the published slot boundaries |
+| USB Mode | USB-OTG (TinyUSB), if your application uses native USB MIDI |
+| USB CDC On Boot | Disabled |
+| USB Firmware MSC On Boot | Disabled |
+| USB DFU On Boot | Disabled |
 
-| 分区 | 起始地址 | 大小 | 用途 |
-| --- | --- | --- | --- |
-| nvs | 0x9000 | 0x5000 | 系统配置 |
-| otadata | 0xE000 | 0x2000 | 启动选择数据 |
-| app0 / ota_0 | 0x10000 | 0x200000（2 MiB） | 主应用、自定义固件所在槽 |
-| app1 / ota_1 | 0x210000 | 0x100000（1 MiB） | 预装上传与恢复应用 |
-| spiffs | 0x310000 | 0xBF0000 | 文件分区，现有应用使用 LittleFS |
-| coredump | 0xF00000 | 0x10000 | 崩溃转储 |
+Create a new sketch for your own implementation. Configure its partition CSV to match the table below; keep the CSV alongside the sketch. Export the compiled application BIN. Only the application `.ino.bin` belongs in an App0 update, not a merged image, bootloader or partition image.
 
-App0 成品必须适合 2 MiB 槽位。编译时按这些边界设置自己的分区布局，并保持与原设备一致；这些地址不是让用户通过串口写入整机镜像的指令。现有工程将 app0、app1 和文件分区标记为 encrypted，实际量产设备安全配置须由官方核验。
+Choose public libraries according to your features:
 
-用户开发以替换 App0 为范围，保留原装 App1、bootloader、分区表及安全配置。不要擦除整片 Flash、烧写 eFuse 或尝试绕过加密。Guitar 的镜像与用户提供的 Guitar `.bin` 均不能作为 Beats 恢复镜像。
+| Feature | Public upstream |
+| --- | --- |
+| Arduino platform | [Espressif Arduino ESP32](https://github.com/espressif/arduino-esp32) |
+| Command-line builds | [Arduino CLI](https://arduino.github.io/arduino-cli/) |
+| Addressable LEDs | [Adafruit NeoPixel](https://github.com/adafruit/Adafruit_NeoPixel) |
+| MIDI messages | [FortySevenEffects Arduino MIDI](https://github.com/FortySevenEffects/arduino_midi_library) |
+| BLE MIDI | [Arduino BLE-MIDI](https://github.com/lathoub/Arduino-BLE-MIDI) |
 
-## 推荐开发顺序
+Lock the versions you use and retain required third-party notices. Guitar-specific display and touch-controller libraries are not Beats requirements. For an ESP-IDF implementation, use its public GPIO, ADC, I2S and OTA APIs and validate the same hardware interfaces and slot boundaries.
 
-1. 确认生产日期、现有官方固件可进入 App1，记录当前官方恢复流程。
-2. 在开发板或有可靠恢复入口的测试机上建立最小应用，先实现并测试 App1 切换入口。
-3. 接入唯一旋钮和低亮度 LED，再逐路接入 ADC 鼓盘；按 GPIO 表测试。
-4. 添加 USB MIDI、BLE MIDI 或 I2S 音频，每增加一个功能重新检查恢复入口和启动行为。
-5. 检查二进制大小、启动稳定性、PSRAM、USB 枚举和各鼓盘响应，再通过适配 Beats 的官方上传工具写入 App0。
-6. 在多次重启后复测 App1 入口，并用适配 Beats 的官方文件验证恢复。
+For a reproducible Arduino CLI project, include a matching custom partition CSV and record the complete board options. With the 3.3.2 reference platform, the relevant FQBN options are `esp32:esp32:esp32s3:FlashSize=16M,PSRAM=opi,PartitionScheme=custom,USBMode=default,CDCOnBoot=default,MSCOnBoot=default,DFUOnBoot=default`. Verify the options with the installed platform's board details before compiling, then use `arduino-cli compile --fqbn <verified-FQBN> --export-binaries <your-sketch-directory>`. Review the recovery requirements before using an uploader.
 
-当前指南没有核实 Beats App1 的 HTTP 上传端点、鉴权和响应格式；不得把 Guitar 上传接口直接认定为 Beats 的接口。使用官网明确标注适配 Beats 的上传流程，未确认时先向官方咨询。
+## 4. Partitions and application size
 
-本次是文档发布，未编译自定义固件，也未执行设备烧录或实机测试。
+| Partition | Type / subtype | Offset | Size | Current layout flag |
+| --- | --- | --- | --- | --- |
+| nvs | data / nvs | 0x9000 | 0x5000 | — |
+| otadata | data / ota | 0xE000 | 0x2000 | — |
+| app0 | app / ota_0 | 0x10000 | 0x200000 (2 MiB) | encrypted |
+| app1 | app / ota_1 | 0x210000 | 0x100000 (1 MiB) | encrypted |
+| spiffs | data / spiffs | 0x310000 | 0xBF0000 | encrypted |
+| coredump | data / coredump | 0xF00000 | 0x10000 | — |
+
+The current application mounts the `spiffs`-named data partition as LittleFS. Partition labels and filesystem implementations are separate concepts.
+
+The App0 binary must fit within **2 MiB**. These boundaries describe the existing layout for application development; they are not serial flashing instructions. Actual production encryption and security settings must be confirmed for the device revision. Preserve App1, the bootloader, partition table and security settings. Do not erase all Flash, burn eFuses or substitute a Guitar image.
+
+## 5. Hardware initialization
+
+**Power, charging and battery-level management are handled by dedicated hardware independently of the application.** Custom App0 firmware does not need a battery ADC routine, charge-state GPIO polling, charging control or software power-latch maintenance. Do not copy those features from the Guitar guide: its power-related interfaces do not apply to Beats. This kit does not specify an application battery-telemetry API.
+
+Initialize the recovery controls early. Then configure the encoder inputs, keep all pad-drive lines at high impedance, and initialize GPIO6 as the common ADC input without pulls. Initialize LEDs with the correct byte order and apply the [pad-to-LED mapping](GPIO.md#pad-to-led-mapping).
+
+In scan order, pads map to physical pixels **8, 9, 5, 1, 2, 0, 3, 4, 7, 6**. Using scan index directly as the LED index will light the wrong pads. Check this mapping at low brightness before integrating MIDI follow lights or an audio engine.
+
+Develop and validate your own pad baseline, noise rejection, velocity response and retrigger handling. Keep the scan loop responsive while servicing encoder input, MIDI and audio. This guide does not provide the official detection or calibration algorithm.
+
+## 6. App1 entry and application design
+
+Provide at least one clear operation that selects the preinstalled App1 and restarts. A physical gesture can remain available even if audio or sound-bank loading fails, provided App0 reaches the gesture handler. You may add a menu action or a Bluetooth command implemented by your own firmware and client.
+
+Use `esp_partition_find_first` to locate `ESP_PARTITION_SUBTYPE_APP_OTA_1`, check `esp_ota_set_boot_partition` for success, and only then call `esp_restart`. See [the complete recovery sequence](RECOVERY.md#switching-to-the-preinstalled-app1).
+
+Earlier devices require a running App0 to trigger this transition. Bluetooth and software gestures cannot rescue an App0 that cannot start. Future-batch forced entry is a separate manufacturer-specified feature; do not assume your software entry provides the same guarantee.
+
+## 7. Building, uploading and validation
+
+1. Confirm the production batch and verify that official firmware can enter App1.
+2. Establish a minimal application on a development board or a test unit with a reliable recovery path.
+3. Implement and test App1 entry before adding audio or complex application logic.
+4. Verify the single knob, each pad and its mapped LED, then add MIDI or I2S output incrementally.
+5. Export only your App0 application BIN, confirm it fits the slot, and use an uploader explicitly compatible with Beats.
+6. Test several power cycles, USB enumeration, PSRAM behavior, pad response and App1 entry.
+7. Restore a known compatible official Beats application using the supported process to verify recovery.
+
+Find supported tools through [Official Beats resources](https://fingersonic.com/products/fingersonic-beats/). This guide does not assert that Beats App1 exposes the same HTTP endpoints, authentication or responses as Guitar. Do not copy Guitar upload requests without verifying compatibility.
+
+No custom application was compiled or flashed as part of this documentation update. The interface tables were checked against the current local project configuration; device behavior still requires hardware validation.
+
+## 8. Troubleshooting
+
+| Symptom | Check |
+| --- | --- |
+| Wrong pad lights | Use mapped physical LED indices rather than scan or internal key indices |
+| All pad readings interfere | Only one drive line may be HIGH; all others should be high impedance |
+| Encoder switch inverted | It is active LOW with pull-up |
+| USB MIDI does not enumerate | Check native USB wiring, USB-OTG mode and your application's USB implementation |
+| App0 is too large | Reduce it to fit the 2 MiB slot; do not expand into App1 |
+| App1 operation does nothing | Check the target partition exists and boot-selection API calls succeed |
+| Earlier hardware no longer boots App0 | Normal software recovery may be unavailable; contact official support |
+
+## 9. Publishing your firmware
+
+Describe the supported hardware revision, controls, build environment, application size and App1 entry. State the earlier-device bricking risk and identify tested recovery steps. Respect dependency licenses and distribute only files you are authorized to publish.
+
+This official developer kit remains documentation only. It does not grant access to, or permission to redistribute, private manufacturer firmware source.
+
+An AI-generated project should be delivered with a complete independent build, dependency versions and licenses, a partition-layout check, a 2 MiB size check, controls, the App1-entry operation and a clear list of tests actually run. The user chooses whether and how to distribute their own independent project; the manufacturer's private firmware remains outside that project.

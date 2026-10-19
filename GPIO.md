@@ -1,49 +1,93 @@
-# Beats GPIO 与硬件接口
+# Fingersonic Beats GPIO and LED Mapping
 
-[返回目录](README.md) · [开发步骤](DEVELOPMENT.md) · [烧录与恢复](RECOVERY.md)
+[Developer kit](README.md) · [Development guide](DEVELOPMENT.md) · [Flashing and recovery](RECOVERY.md)
 
-以下为当前 Beats 工程所用的 ESP32-S3 GPIO 编号，不是芯片封装脚号。产品只有一个实体旋钮。软件中遗留的 `ENCODER1` 等其他产品配置不属于本产品公开接线表。
+GPIO numbers below are ESP32-S3 signal numbers, not connector positions or package pin numbers. Beats has one physical knob and 10 pressure-sensitive pads. Legacy definitions for other controls in the internal project do not describe extra controls on this product.
 
-## 唯一旋钮（内部名 ENCODER2）
+## Power and battery management
 
-| 信号 | GPIO | 接口说明 |
-| --- | --- | --- |
-| CLK / A | 1 | 旋转编码器 A，相应输入启用上拉 |
-| DT / B | 3 | 旋转编码器 B，相应输入启用上拉 |
-| SW / 按压 | 38 | 按下接地，低电平有效，上拉输入 |
+Power, charging and battery-level management are handled by dedicated hardware independently of App0. No application battery sampling, charge-state polling, charging control or power-hold GPIO implementation is required. Do not import the Guitar product's power and battery GPIO assignments into Beats firmware. An application battery-telemetry API is not specified by this kit.
 
-编码器公共端与按键公共端接 GND。不要根据内部命名额外安装第二个旋钮。GPIO3 还涉及 ESP32-S3 启动配置，外部电路应遵守芯片资料并保持原机接线。
+## Single rotary encoder
 
-## 力度感应鼓盘
+The only physical encoder is named `ENCODER2` in the hardware configuration.
 
-公共 ADC 输入为 **GPIO6（ADC1_CH5）**。10 路激励逐路扫描：只让当前一路输出 HIGH，其他路保持输入高阻。公共 ADC 脚仅作输入，不启用上下拉。鼓盘接口不是 10 个独立 ADC 输入。
+| Signal | GPIO | Direction and behavior |
+| --- | ---: | --- |
+| CLK / A | 1 | Encoder input with pull-up |
+| DT / B | 3 | Encoder input with pull-up |
+| SW / push switch | 38 | Pull-up input; pressing connects to ground, active LOW |
 
-| 扫描索引 | 激励 GPIO | 内部键位索引 | 跟弹灯光参考音符 | 鼓盘 |
-| --- | --- | --- | --- | --- |
-| 0 | 4 | 10 | 46 | Open Hi-Hat / HH OPEN，左边第一个按键 |
-| 1 | 7 | 6 | 42 | Closed Hi-Hat |
-| 2 | 8 | 13 | 49 | Crash |
-| 3 | 9 | 2 | 38 | Snare |
-| 4 | 10 | 11 | 48 | Tom1 |
-| 5 | 12 | 0 | 36 | Kick |
-| 6 | 14 | 9 | 45 | Tom2 |
-| 7 | 15 | 7 | 43 | Floor Tom |
-| 8 | 17 | 17 | 53 | Ride |
-| 9 | 18 | 21 | 57 | Crash2 |
+The encoder common terminal and switch common terminal connect to GND. GPIO3 is also a strapping pin on ESP32-S3; preserve the original board wiring and consult the chip documentation before changing the surrounding circuit.
 
-表中音符来自当前跟弹灯光映射，用于标识鼓盘，不保证等于所有演奏模式的 MIDI 输出音符；自定义固件可自行定义输出。扫描索引、内部键位索引、MIDI 音符和 LED 索引属于不同编号体系，不应直接互换。
+## Shared ADC pad interface
 
-扫描建议：启动时全部激励脚高阻；选择一路激励后等待电路稳定再采样；完成后立即恢复高阻，再扫描下一路。先在无声音、低亮度 LED 的测试环境确认每个鼓盘，再添加基线校正、去噪、力度曲线及重复触发处理。本文不公开官方判定算法或校准实现。
+The common sense input is **GPIO6 (ADC1_CH5)**. Scan the 10 drive lines one at a time. Drive only the selected line HIGH, keep all other drive lines as high-impedance inputs, sample the common ADC input after settling, then return the selected line to high impedance. Configure GPIO6 as an input without pull-up or pull-down.
 
-## LED 与音频
+These are not 10 independent ADC inputs. A scan index, an internal key index, an LED chain index and a MIDI note number identify different things.
 
-| 信号 | GPIO | 说明 |
-| --- | --- | --- |
-| 可寻址 LED 数据 | 2 | 当前驱动配置为 NeoPixel、GRB、800 kHz；软件链长度 24 |
-| I2S BCLK | 40 | 位时钟输出 |
-| I2S DATA OUT | 41 | MCU 输出，连接 DAC 数据输入 |
-| I2S LRCLK / WS | 42 | 左右声道时钟输出 |
+| Scan index | Pad | Drive GPIO | Internal key index | Physical LED chain index | Follow-light MIDI note |
+| ---: | --- | ---: | ---: | ---: | ---: |
+| 0 | Open Hi-Hat / HH OPEN, first pad on the left | 4 | 10 | 8 | 46 |
+| 1 | Closed Hi-Hat | 7 | 6 | 9 | 42 |
+| 2 | Crash | 8 | 13 | 5 | 49 |
+| 3 | Snare | 9 | 2 | 1 | 38 |
+| 4 | Tom1 | 10 | 11 | 2 | 48 |
+| 5 | Kick | 12 | 0 | 0 | 36 |
+| 6 | Tom2 | 14 | 9 | 3 | 45 |
+| 7 | Floor Tom | 15 | 7 | 4 | 43 |
+| 8 | Ride | 17 | 17 | 7 | 53 |
+| 9 | Crash2 | 18 | 21 | 6 | 57 |
 
-当前音频配置为 44.1 kHz、立体声、16 位 PCM，无 I2S 数据输入。24 是驱动配置长度，不代表产品有 24 个演奏鼓盘，也不保证每颗灯均可见。
+The note column describes the current follow-light mapping and pad identity, not every possible performance mode's MIDI output. Tom1 uses note 48; the current follow-light receiver also accepts legacy note 47 for that pad. Custom firmware may choose its own output mapping.
 
-USB 使用 ESP32-S3 原生 USB 接口；其 D−/D+ 为 GPIO19/20，不要在自定义程序中重新分配这些接口作为普通 GPIO。所有外设电气条件应以对应芯片与实际 PCB 为准，不向 ESP32-S3 GPIO 输入 5 V。没有在此列出的 GPIO 不代表可以自由使用。
+## Pad-to-LED mapping
+
+**The pad scan order is not the LED wire order.** In scan order 0–9, the LED chain indices are **8, 9, 5, 1, 2, 0, 3, 4, 7, 6**. All LED indices are zero-based: index 0 is the first addressable pixel on the data chain, not a printed pad number.
+
+| Physical LED chain index | Pad | Scan index | Internal key index |
+| ---: | --- | ---: | ---: |
+| 0 | Kick | 5 | 0 |
+| 1 | Snare | 3 | 2 |
+| 2 | Tom1 | 4 | 11 |
+| 3 | Tom2 | 6 | 9 |
+| 4 | Floor Tom | 7 | 7 |
+| 5 | Crash | 2 | 13 |
+| 6 | Crash2 | 9 | 21 |
+| 7 | Ride | 8 | 17 |
+| 8 | Open Hi-Hat | 0 | 10 |
+| 9 | Closed Hi-Hat | 1 | 6 |
+
+For example, scan index 0 reads HH OPEN through drive GPIO4 and common ADC GPIO6. Its internal key index is 10, but its light is **pixel 8**, not pixel 0 or pixel 10. Apply this mapping consistently to local pad feedback, MIDI follow lights and level displays. If you maintain a per-pixel color table, use the mapped physical LED index to select the pad's color.
+
+| LED interface setting | Current configuration |
+| --- | --- |
+| Data GPIO | 2 |
+| Protocol | NeoPixel / WS2812-compatible, 800 kHz |
+| Byte order | GRB |
+| Driver buffer length | 24 pixels |
+| Pad feedback indices | 0–9, using the mapping above |
+
+The current driver allocates 24 pixels, while drum-pad feedback uses indices 0–9. Current pad-oriented displays clear indices 10–23. The buffer length is not evidence of 24 visible pad LEDs or 24 playing pads. Keep unused indices off during initial testing.
+
+## I2S audio and USB
+
+| Signal | GPIO | Direction / connection |
+| --- | ---: | --- |
+| I2S BCLK | 40 | Bit-clock output to DAC |
+| I2S DATA OUT | 41 | MCU output to DAC data input |
+| I2S LRCLK / WS | 42 | Word-clock output to DAC |
+| USB D− | 19 | ESP32-S3 native USB |
+| USB D+ | 20 | ESP32-S3 native USB |
+
+The current audio configuration is 44.1 kHz, stereo, 16-bit PCM, with no I2S data input. Preserve the original USB wiring and do not repurpose USB pins as ordinary GPIO when using USB.
+
+## Bring-up recommendations
+
+1. Start with all drive lines at high impedance and all LEDs off.
+2. Verify the single encoder's rotation and active-LOW switch.
+3. At low brightness, light pixels 0–9 individually and check them against the LED table.
+4. Scan one pad at a time, then verify every pad's ADC-to-LED pairing.
+5. Add your own baseline tracking, noise rejection, velocity curve and retrigger handling before integrating audio or MIDI.
+
+GPIO uses 3.3 V logic; do not apply 5 V to an ESP32-S3 input. Consult component specifications and the actual PCB revision before modifying electrical connections. A signal omitted from this table is not automatically available for expansion. This guide publishes the interface mapping, not the official sensing or calibration implementation.
